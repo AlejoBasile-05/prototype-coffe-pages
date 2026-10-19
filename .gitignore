@@ -57,6 +57,13 @@ pnpm-debug.log*
 __pycache__/
 *.pyc
 
+# ── Agentes y skills ──
+.agents/
+.atl/
+
+# ── Output de exportación ──
+/exports/
+
 # ── Misc ──
 .turbo/
-*.tsbuildinfo
+.cache/
