@@ -1,0 +1,36 @@
+# Postgres efímero SOLO para los tests de integración locales.
+#
+# ⛔ Por qué existe: `npm run test` corre los tests de integración, y
+#    tests/setup.ts trunca TODAS las tablas entre tests. Si apuntan a la
+#    base de desarrollo (Supabase), destruyen los datos de la demo — fue
+#    el bug que "disolvía" el catálogo y los horarios cada vez que alguien
+#    corría la suite. Los tests deben destruir ESTA base, no aquella.
+#
+# Es el mismo patrón que CI (`.github/workflows/ci.yml`, job integracion):
+# Postgres 16-alpine, base `modo_miga_test`, credenciales fijas de test que
+# no son un secreto (la base vive solo mientras corre la suite).
+#
+# Puerto 5433 en el host: así no choca con un Postgres local en 5432.
+#
+# Uso: `npm run db:test:up` antes de `npm run test:integracion`
+# (`npm run test:integracion` ya lo hace solo).
+
+services:
+  db-test:
+    image: postgres:16-alpine
+    container_name: modo-miga-db-test
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: modo_miga_test
+    ports:
+      - "55433:5432"
+    # Sin volumen: la base de tests es efímera a propósito — nada que
+    # conservar entre corridas, y apagar el contenedor deja todo limpio.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d modo_miga_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

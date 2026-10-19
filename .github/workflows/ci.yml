@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# ⛔ Cancela la corrida anterior del mismo ref. Tres pushes seguidos sobre la
+#    misma rama no necesitan tres Postgres ni tres `next build`: la que gana
+#    es la última, y las anteriores ocupan runner sin decir nada.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ==========================================================================
+  # 1. Lo que no necesita base: tipos, lint, pruebas puras y el bundle.
+  # ==========================================================================
+  calidad:
+    name: Calidad
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # ⛔ `prisma generate` antes que nada: `tsc` y Vitest importan
+      #    `@prisma/client`, y sin el cliente generado el typecheck falla con
+      #    errores que no son del código. El `postinstall` ya lo corre, pero
+      #    en cacheadas viejas el cliente puede quedar desfasado.
+      - run: npx prisma generate
+
+      - run: npm run lint
+      - run: npm run typecheck
+
+      # ⛔ Sólo el proyecto `unit`: el de integración necesita Postgres y
+      #    está en el job de al lado. Correrlo acá sería una base que no
+      #    existe.
+      - run: npm run test:unit -- --coverage
+
+      - run: npm run test:ui
+
+      # ⛔ Este job no tiene secretos, a propósito: los de Supabase y
+      #    Cloudinary no deberían poder sacarse del repositorio para
+      #    simplemente construir. El bundle se arma con valores de mentira,
+      #    así que `auditar-bundle` no tiene nada real contra qué comparar y
+      #    falla diciendo exactamente eso. La excepción queda ESCRITA acá, no
+      #    implícita: la auditoría de verdad corre en el deploy, con
+      #    secretos de producción (Tarea 19 §5.1).
+      - name: "Auditar el bundle (sin secretos; la real va en el deploy)"
+        run: npm run build
+        env:
+          AUDITAR_BUNDLE_SIN_SECRETOS: "1"
+
+      # ⛔ No bloquea el pipeline a propósito: `npm audit` marca vulnerabilidades
+      #    en dependencias transitivas que no se pueden arreglar sin romper
+      #    el lockfile, y un rojo permanente entrena al equipo a ignorar el
+      #    job entero. Se informa y se deja que la decisión sea humana.
+      - name: Auditoría de dependencias (informativa)
+        continue-on-error: true
+        run: npm run audit:deps
+
+  # ==========================================================================
+  # 2. Lo que sí necesita base: autorización contra la base real.
+  # ==========================================================================
+  integracion:
+    name: Integración
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        # Postgres 16: la versión mayor y estable. No la última major — una
+        # migración que sólo funciona en la 17 no fallaría en local.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: modo_miga_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # ⛔ Sin `?schema=public`: Prisma lo agrega solo, y duplicado rompe la
+      #    firma del pool.
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/modo_miga_test
+      DIRECT_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/modo_miga_test
+      # ⛔ Valores de mentira, y el nombre lo dice. La auditoría de
+      #    secretos los reconoce como placeholders y no los cuenta como
+      #    verificados: ningún secreto de producción entra por acá.
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key-para-ci
+      NODE_ENV: test
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx prisma generate
+
+      # ⛔ ANTES de las migraciones, y no por prolijidad. La migración de RLS
+      #    de la Tarea 19 está escrita con guardas `IF EXISTS (rol
+      #    'authenticated') AND to_regprocedure('auth.uid()')`: sin este stub
+      #    las guardas son falsas, la migración pasa igual y deja RLS ACTIVO
+      #    con CERO políticas. En una base así toda lectura devuelve vacío y
+      #    los tests de autorización pasan mintiendo. Verificado: sin el stub,
+      #    0 políticas; con el stub, 2.
+      - name: "Stub de roles de Supabase y auth.uid()"
+        run: psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/infra/roles-y-auth-stub.sql
+
+      - run: npx prisma migrate deploy
+
+      # ⛔ La conexión de los tests corre como el dueño de la base, que es el
+      #    único rol que bypasea RLS. Con un rol privilegiado la lectura de
+      #    `staff_members` devolvería `null` y `verify-admin.test.ts` no
+      #    probaría nada. Por eso la aserción de RLS vive en el test y no
+      #    acá: si alguien cambia la URL, el test lo dice en su propio
+      #    mensaje.
+      - name: Verificar que RLS quedó activa
+        run: |
+          psql "$DATABASE_URL" -tAc \
+            "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND rowsecurity;"
+
+      - run: npm run test:integracion
+
+      - run: npm run verify:actions

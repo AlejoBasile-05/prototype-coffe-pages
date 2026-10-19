@@ -1,0 +1,291 @@
+// ════════════════════════════════════════════════════════════════
+// Mi Negocio — Modelo de datos (Tarea 03)
+//
+// Reglas:
+//   · Precio SIEMPRE Decimal(10,2). Nunca Float, nunca Int en centavos.
+//   · isAvailable (stock) y status (editorial) son ejes SEPARADOS.
+//   · Los borrados son lógicos. No hay DELETE destructivo en el dominio.
+//   · `Order` EXISTE desde la Tarea 23 (tablero de comandas): la
+//     decisión de §3.3 del DESIGN.md quedó revertida con fecha y motivo.
+//     El chat de WhatsApp sigue siendo la confirmación humana; la tabla
+//     solo alimenta el tablero de cocina.
+// ════════════════════════════════════════════════════════════════
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+
+  // RUNTIME: pooler de Supabase en modo transaction (puerto 6543).
+  // Obligatorio en serverless. Ver DESIGN.md §4.5 para el porqué.
+  url = env("DATABASE_URL")
+
+  // MIGRACIONES: conexión directa, sin pooler (puerto 5432).
+  // Prisma necesita una sesión persistente que PgBouncer no ofrece.
+  directUrl = env("DIRECT_DATABASE_URL")
+}
+
+// ─────────────────────────── Enums ──────────────────────────────
+
+/// Eje EDITORIAL: ¿el producto existe en el catálogo?
+/// A diferencia de `isAvailable`, cambia pocas veces (una vez al publicarse).
+enum ProductStatus {
+  /// Creado, todavía no visible. Precio posiblemente sin confirmar.
+  DRAFT
+
+  /// Visible en el catálogo público. Único estado que consulta la UI.
+  PUBLISHED
+
+  /// Retirado del menú. No se borra: se conserva para trazabilidad.
+  ARCHIVED
+}
+
+enum StaffRole {
+  /// Acceso total. Único que puede editar datos del negocio y staff.
+  OWNER
+
+  /// Puede operar el menú y la disponibilidad. No puede tocar ajustes.
+  STAFF
+}
+
+/// Eje OPERATIVO de la comanda (Tarea 23). No es el estado de pago:
+/// el pago se resuelve en el chat o en el mostrador, nunca acá.
+enum OrderStatus {
+  /// Entró desde el checkout web. Nadie del local lo confirmó todavía.
+  PENDING
+
+  /// El encargado vio el pedido en WhatsApp y lo puso en cocina.
+  PREPARING
+
+  /// Entregado al delivery o retirado por el cliente. Cierra el ciclo.
+  READY
+
+  /// Pedido falso, duplicado o cancelado por el cliente en el chat.
+  CANCELLED
+}
+
+enum FulfillmentType {
+  DELIVERY
+  PICKUP
+}
+
+// ────────────────────────── Category ────────────────────────────
+
+model Category {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String? @db.Text
+
+  /// Orden manual de aparición en el menú. Menor = primero.
+  position    Int     @default(0)
+
+  /// Permite ocultar la categoría sin borrar sus productos.
+  isVisible   Boolean @default(true)
+
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([position])
+  @@map("categories")
+}
+
+// ─────────────────────────── Product ────────────────────────────
+
+model Product {
+  id          String  @id @default(cuid())
+  name        String
+  slug        String  @unique
+  description String? @db.Text
+
+  /// ⚠️ Prisma devuelve `Prisma.Decimal`, que React NO puede serializar
+  /// al cruzar el límite servidor→cliente. Todo DTO de salida debe
+  /// aplicar `.toNumber()`. Ver Tarea 08 §4.3.
+  price       Decimal @db.Decimal(10, 2)
+
+  /// URL de Cloudinary ya optimizada. Es lo que se sirve en la UI.
+  imageUrl    String
+
+  /// Identificador del asset en Cloudinary. Necesario para poder
+  /// destruirlo al reemplazar la foto. Si se pierde, el asset queda
+  /// huérfano pagando almacenamiento para siempre.
+  imagePublicId String?
+
+  /// Eje OPERATIVO: ¿hay stock AHORA? Lo alterna el encargado con un
+  /// switch. Se propaga por Realtime (Tarea 15) sin invalidar caché.
+  /// Es exactamente lo que lo distingue de `status`.
+  isAvailable Boolean       @default(true)
+
+  status      ProductStatus @default(DRAFT)
+
+  /// Aparece en la home y en la cinta de destacados.
+  isFeatured  Boolean       @default(false)
+
+  /// Orden manual dentro de la categoría.
+  sortOrder   Int           @default(0)
+
+  /// Claves del glosario definido en la Tarea 00 §5 (glosario cerrado).
+  /// Array nativo de Postgres: text[], no tabla relacional.
+  /// Sobre-normalizar esto sería error de diseño para este dominio.
+  allergens   String[]      @default([])
+
+  categoryId  String
+  category    Category         @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  variants    ProductVariant[]
+
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  // Índice compuesto para la query principal del catálogo público:
+  // "productos publicados, agrupados por categoría, ordenados".
+  @@index([status, categoryId])
+  // Índice para la lista del panel admin con filtro de disponibilidad.
+  @@index([isAvailable])
+  @@map("products")
+}
+
+// ────────────────────── ProductVariant ──────────────────────────
+
+/// ⚠️ SIN USO EN v1 (decisión D-02, Tarea 00): el carrito resuelve con
+/// cantidades y notas. El modelo SE CONSERVA porque D-02 lo permite como
+/// alternativa si el encargado se contradice después (agregar variantes
+/// pasa a ser un CRUD en el panel, no una migración). Es deliberado:
+/// ningún repositorio (Tarea 04) lo expone y ninguna UI lo consume.
+/// NO usarlo sin abrir antes esa decisión de negocio.
+model ProductVariant {
+  id         String  @id @default(cuid())
+  name       String
+
+  /// Se SUMA al precio del producto. Puede ser 0 o negativo (descuento).
+  priceDelta Decimal @default(0) @db.Decimal(10, 2)
+
+  isAvailable Boolean @default(true)
+  sortOrder   Int     @default(0)
+
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+  @@map("product_variants")
+}
+
+// ───────────────────── BusinessSettings ──────────────────────────
+
+/// Tabla singleton: una sola fila, con id fijo en 1.
+/// Configuración del negocio que el admin puede editar desde la UI.
+model BusinessSettings {
+  /// Fijo en "1". La app lee siempre `where: { id: "1" }`.
+  /// (String porque Prisma no admite CHECK(id = 1) en el schema; la
+  /// unicidad de la fila se refuerza con el default y la convención.)
+  id             String   @id @default("1")
+
+  name           String
+
+  /// E.164 sin `+` ni espacios: "5492615xxxxxx".
+  /// Se sanitiza a solo dígitos en buildWhatsAppUrl (Tarea 12).
+  whatsappPhone  String
+
+  address        String?
+  instagramUrl   String?
+
+  /// Ej: { "monday": { "opens": "09:00", "closes": "21:00" }, ... }
+  openingHours   Json?
+
+  /// Texto que se puede agregar al mensaje de cierre del catálogo.
+  closingMessage String?  @db.Text
+
+  /// Aviso legal breve para el pie de página.
+  legalNotice    String?  @db.Text
+
+  updatedAt      DateTime @updatedAt
+
+  @@map("business_settings")
+}
+
+// ─────────────────────────── Order ──────────────────────────────
+
+/// Comanda del tablero de cocina (Tarea 23, retrofit de DESIGN.md §3.3).
+///
+/// ⚠️ El pedido se registra cuando el cliente confirma el checkout,
+///    ANTES de abrir WhatsApp. Si el registro falla, el handoff igual
+///    se abre: el chat es el canal sagrado y la comanda nunca lo bloquea.
+///
+/// ⚠️ Los datos del cliente (nombre, teléfono, dirección) son PII. Se
+///    guardan porque la cocina necesita saber a quién entregarle, y se
+///    sirven SOLO por el panel autenticado. Ninguna ruta pública lee
+///    esta tabla.
+model Order {
+  id          String      @id @default(cuid())
+
+  /// Número legible para el humano (#0045). Separado del id (cuid)
+  /// porque el encargado lo dice por teléfono: no puede deletrear un cuid.
+  orderNumber Int         @unique @default(autoincrement())
+
+  status      OrderStatus @default(PENDING)
+
+  customerName  String
+  customerPhone String
+
+  fulfillment FulfillmentType
+  /// Solo si fulfillment = DELIVERY.
+  address     String?
+  notes       String?         @db.Text
+
+  /// Total del pedido al confirmar. Nunca se recalcula después: es
+  /// lo que el cliente vio y aceptó.
+  total Decimal @db.Decimal(10, 2)
+
+  items     OrderItem[]
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  /// La query del tablero: "los de hoy, por estado, más nuevos arriba".
+  @@index([status, createdAt])
+  @@map("orders")
+}
+
+// ────────────────────────── OrderItem ───────────────────────────
+
+/// Instantánea de una línea del pedido.
+///
+/// ⛔ SIN Foreign Key a Product. El precio y el nombre quedan CONGELADOS
+///    en la línea: si mañana el sándwich cambia de precio o se archiva,
+///    la comanda del viernes pasado sigue diciendo lo que se cobró esa
+///    noche. Una FK viva retrocedería el cambio sobre pedidos cerrados.
+model OrderItem {
+  id    String @id @default(cuid())
+
+  /// Referencia débil al producto, para analítica futura. Nullable: el
+  /// producto puede no existir más y la línea sigue siendo válida.
+  productId   String?
+
+  productName String
+  variantName String?
+
+  unitPrice Decimal @db.Decimal(10, 2)
+  quantity  Int
+
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ──────────────────────── StaffMember ───────────────────────────
+
+/// ⚠️ NO guarda contraseñas. La identidad y las credenciales viven en
+/// Supabase Auth. Esta tabla solo autoriza: quién es parte del equipo.
+model StaffMember {
+  /// Coincide con el `id` (UUID) del usuario en auth.users.
+  id        String    @id
+  email     String    @unique
+  name      String?
+  role      StaffRole @default(STAFF)
+  createdAt DateTime  @default(now())
+
+  @@map("staff_members")
+}

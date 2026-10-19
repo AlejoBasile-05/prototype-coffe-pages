@@ -1,0 +1,30 @@
+// vercel.json
+{
+  // ⛔ Sin `buildCommand` con migraciones. Ver §2.2. Este archivo no
+  //    aparece hasta esta tarea, y aparece con una sola decisión.
+  "framework": "nextjs",
+
+  /**
+   * ⛔ Región pegada a la de la base.
+   *
+   * La URL del pooler de la Tarea 02 es `aws-0-sa-east-1`, que es São
+   * Paulo. Una función serverless en `iad1` (Virginia) hace un viaje de ida
+   * y vuelta por el Atlántico en cada consulta: en una página que hace
+   * cinco, el usuario nota el retraso antes que nadie. Es el cold start de
+   * 1 a 3 s de la Tarea 02 §9 medido desde el lugar correcto.
+   */
+  "regions": ["gru1"],
+
+  /**
+   * ⛔ `maxDuration` en 10, no en 300.
+   *
+   * El plan Hobby corta a los 10 segundos por función. Poner 300 no da
+   * más tiempo: da la ilusión de tenerlo, y el corte llega igual. Un
+   * endpoint de salud que tarda diez segundos ya está roto, y conviene
+   * que lo diga rápido.
+   */
+  "functions": {
+    "src/app/api/health/route.ts": { "maxDuration": 10 },
+    "src/app/api/csp-report/route.ts": { "maxDuration": 10 }
+  }
+}

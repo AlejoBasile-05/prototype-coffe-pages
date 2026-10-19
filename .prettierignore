@@ -1,0 +1,14 @@
+# Artefactos de build y dependencias
+.next/
+out/
+build/
+coverage/
+node_modules/
+next-env.d.ts
+package-lock.json
+
+# Documentación de diseño: escrita a mano, se formatea fuera del ciclo de código
+DESIGN.md
+docs/
+.agents/
+skills-lock.json

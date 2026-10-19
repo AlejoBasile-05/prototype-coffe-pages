@@ -1,0 +1,49 @@
+# .github/workflows/migrar-produccion.yml
+# ⛔ `workflow_dispatch` y nada más. Si alguien le agrega `push: main`,
+#    esta tarea deja de cumplir su propósito. Ver §3.4.
+name: migrar-produccion
+
+on:
+  workflow_dispatch:
+    inputs:
+      ambiente:
+        description: Base a migrar
+        required: true
+        type: choice
+        options: [produccion, desarrollo]
+
+jobs:
+  migrar:
+    name: prisma migrate deploy
+    runs-on: ubuntu-latest
+    # ⛔ Entorno protegido: pide confirmación antes de correr, y es donde
+    #    vive el secreto. El aviso de "esperando aprobación" es el que
+    #    hace que alguien mire qué se está por aplicar.
+    environment: ${{ github.event.inputs.ambiente }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Estado ANTES de migrar
+        run: npx prisma migrate status
+        env:
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL_PROD }}
+
+      - name: Aplicar migraciones
+        run: npx prisma migrate deploy
+        env:
+          # ⛔ Sólo la directa. Si este paso correra con el pooler,
+          #    `Could not connect`: la transacción de DDL necesita
+          #    una sesión real y el pooler no la garantiza.
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL_PROD }}
+
+      - name: Estado final
+        run: npx prisma migrate status
+        env:
+          DIRECT_DATABASE_URL: ${{ secrets.DIRECT_DATABASE_URL_PROD }}

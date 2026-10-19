@@ -1,0 +1,252 @@
+@import "tailwindcss";
+/* Fundación de Arc UI: tokens semánticos, motion y superficies.
+   Los overrides de marca del prototipo van DESPUÉS de este import (abajo). */
+@import "../components/arc/foundation.css";
+
+/* ═══════════════════════════════════════════════════════════════════
+   Tokens del prototipo sobre los roles semánticos de Arc UI.
+
+   Estrategia: los colores de Tailwind (--color-*) NO guardan valores,
+   guardan referencias a los tokens semánticos de Arc (--background,
+   --surface, --foreground...). Como esos tokens cambian con
+   [data-theme="dark"], todo el sitio existente (bg-cream, text-ink,
+   bg-paper...) pasa a dark mode sin tocar un solo call-site.
+
+   Contraste medido en docs/tasks/09-fundamentos-ui-y-sistema-diseno.md
+   §4.3 (light). Los valores dark se eligieron sobre la misma regla:
+   texto ≥ 4.5:1, bordes de control ≥ 3:1 (WCAG 1.4.11).
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── Marca sobre roles Arc: LIGHT ── */
+:root {
+  --background: #faf6f0; /* cream */
+  --surface: #ffffff; /* paper */
+  --surface-raised: #ffffff;
+  --surface-muted: #f2eae0; /* hover/wells cálidos */
+  --foreground: #241611; /* ink */
+  --text-secondary: #6b5a50; /* ink-muted: 6.1:1 sobre cream */
+  --text-muted: #8c7a6d;
+  --border: #e3d8ca; /* line */
+  --border-subtle: #efe7dc;
+  --border-strong: #8c8378; /* 3.7:1 sobre paper */
+
+  --accent: #b85c38; /* crust */
+  --accent-strong: #8a3e20; /* crust-deep: 7:1 sobre cream */
+  --accent-subtle: rgb(184 92 56 / 0.1);
+  --accent-foreground: #ffffff;
+
+  --control-on: #b85c38;
+  --control-glyph: #ffffff;
+  --control-track: #e3d8ca;
+  --control-track-hover: #d8c9b6;
+
+  --success: #5c7a5e; /* sage */
+  --warning: #c98a2b; /* amber */
+  --danger: #a33b2a; /* clay */
+
+  /* Sombras cortas y con dirección de la casa (DESIGN.md §10):
+     la profundidad viene del borde, no del blur difuso. */
+  --shadow-resting: 0 1px 2px rgb(36 22 17 / 0.07);
+  --shadow-raised: 0 8px 20px -12px rgb(36 22 17 / 0.35);
+  --shadow-floating: 0 16px 40px -16px rgb(36 22 17 / 0.4);
+
+  /* Radios del prototipo (los de Arc por defecto son más redondos). */
+  --radius-control: 0.625rem;
+  --radius-panel: 1.25rem;
+  --radius-surface: 1rem;
+
+  /* Tipografía del prototipo (next/font la inyecta en <html>). */
+  --font-display: var(--font-display-miga), Georgia, "Times New Roman", serif;
+  --font-body: var(--font-body-miga), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* ── Marca sobre roles Arc: DARK (tinta cálida, nunca negro puro) ── */
+:root[data-theme="dark"] {
+  --background: #1b120d; /* ink calentado */
+  --surface: #261a12;
+  --surface-raised: #2e2118;
+  --surface-muted: #35271c;
+  --foreground: #faf6f0; /* cream como texto: 14.5:1 */
+  --text-secondary: #cbb9a8; /* 8.3:1 */
+  --text-muted: #a08a77; /* 5.1:1 */
+  --border: #3e2d21; /* separador decorativo */
+  --border-subtle: #30231a;
+  --border-strong: #8c7361; /* 3.4:1 sobre surface */
+
+  --accent: #d98e63; /* crust aclarado: 7.4:1 sobre background */
+  --accent-strong: #efb48c;
+  --accent-subtle: rgb(217 142 99 / 0.16);
+
+  --control-on: #d98e63;
+  --control-glyph: #1b120d;
+  --control-track: #3e2d21;
+  --control-track-hover: #4c392a;
+
+  --success: #93b495;
+  --warning: #e0b45c;
+  --danger: #e07b63;
+
+  --shadow-resting: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-raised: 0 8px 20px -12px rgb(0 0 0 / 0.6);
+  --shadow-floating: 0 16px 40px -16px rgb(0 0 0 / 0.65);
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   @theme: las utilidades Tailwind del sitio (bg-cream, text-ink...)
+   resuelven a los tokens semánticos de arriba. El valor real vive en
+   :root / [data-theme="dark"]; acá solo se cablea la referencia.
+   ═══════════════════════════════════════════════════════════════════ */
+@theme {
+  --color-cream: var(--background);
+  --color-paper: var(--surface);
+  --color-ink: var(--foreground);
+  --color-ink-muted: var(--text-secondary);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+
+  /* Los colores de marca conservan su valor fijo: crust como superficie
+     de botón funciona en ambos temas; crust-deep solo es texto en light
+     (en dark el texto de acento es --accent vía var). */
+  --color-crust: #b85c38;
+  --color-crust-deep: var(--accent-strong);
+  --color-sage: var(--success);
+  --color-amber: var(--warning);
+  --color-clay: var(--danger);
+  --color-clay-deep: #8c2f20;
+
+  /* Tipografía (misma referencia que antes; ahora también la usa Arc). */
+  --font-display: var(--font-display-miga), Georgia, "Times New Roman", serif;
+  --font-sans: var(--font-body-miga), ui-sans-serif, system-ui, -apple-system, sans-serif;
+
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1.5;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.4;
+  --text-base: 1rem;
+  --text-base--line-height: 1.6;
+  --text-lg: 1.125rem;
+  --text-lg--line-height: 1.5;
+  --text-xl: 1.25rem;
+  --text-xl--line-height: 1.4;
+  --text-2xl: 1.5rem;
+  --text-2xl--line-height: 1.3;
+  --text-3xl: 1.875rem;
+  --text-3xl--line-height: 1.2;
+
+  /* Títulos fluidos con clamp(). El cuerpo NO es fluido: cambia el
+     interlineado y a 360 px deja de leerse. */
+  --text-display: clamp(2rem, 1.6rem + 2vw, 3rem);
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.02em;
+  --text-display-lg: clamp(2.5rem, 1.7rem + 4vw, 4.25rem);
+  --text-display-lg--line-height: 1.05;
+  --text-display-lg--letter-spacing: -0.025em;
+
+  /* Radios y sombras: valores literales (evita auto-referencias CSS).
+     Los tokens Arc equivalentes se sobrescriben en :root, más arriba. */
+  --radius-control: 0.625rem;
+  --radius-card: 1rem;
+  --radius-panel: 1.25rem;
+
+  --shadow-card: 0 1px 2px rgb(36 22 17 / 0.07);
+  --shadow-lifted: 0 8px 20px -12px rgb(36 22 17 / 0.35);
+
+  --animate-fade-in: fade-in 150ms ease-out;
+  --animate-sheet-up: sheet-up 220ms var(--ease-soft);
+  --animate-toast-in: toast-in 180ms var(--ease-soft);
+
+  --ease-soft: cubic-bezier(0.2, 0, 0, 1);
+}
+
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes sheet-up {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@layer base {
+  html {
+    /* El usuario scrollea a un ancla, no al background. */
+    scroll-behavior: smooth;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-body);
+    -webkit-font-smoothing: antialiased;
+    /* El cambio de tema no es una animación: es una respuesta. */
+    transition: background-color 150ms ease-out;
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
+  }
+
+  /* Corrección deliberada a Arc: su foundation elimina TODOS los focus
+     rings ("product decision"). Este sitio no: WCAG 2.4.11 exige foco
+     visible. El !important iguala al !important del foundation y el
+     selector :focus-visible lo limita a navegación por teclado.
+     accent-strong da ≥7:1 sobre ambos temas. */
+  :where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+    outline: 2px solid var(--accent-strong) !important;
+    outline-offset: 2px !important;
+  }
+
+  /* iOS hace zoom automático al enfocar un input con fuente menor a
+     16 px y no vuelve atrás. Con 16 px no hay zoom. */
+  input,
+  select,
+  textarea {
+    font-size: 1rem;
+  }
+
+  ::selection {
+    background-color: var(--accent);
+    color: var(--accent-foreground);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   prefers-reduced-motion
+
+   Regla global de parada total. Convierte toda transición y animación
+   en un salto instantáneo.
+
+   ⚠️ Consecuencia que hay que conocer: mata también los eventos
+   `transitionend` y `animationend`. Los componentes Arc y los propios
+   no encadenan lógica a esos eventos.
+   ═══════════════════════════════════════════════════════════════════ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
